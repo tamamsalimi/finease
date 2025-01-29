@@ -1,0 +1,76 @@
+# General Java
+*.class
+*.log
+*.jar
+*.war
+*.ear
+*.db
+
+# Maven
+/.mvn/
+target/
+!target/.gitkeep  # Optional: Keep this if you want an empty target directory to be tracked
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# VSCode
+.vscode/
+
+# NetBeans
+nbproject/
+
+# OS-specific files
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+
+# Gradle wrapper
+gradle-wrapper.jar
+
+# Maven wrapper
+.mvn/wrapper/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# IDE-specific configuration files
+.vscode/
+.idea/
+
+# Java build output
+**/target/
+**/bin/
+**/build/
+
+# H2 Database (optional if used in your project)
+*.h2.db
+*.h2.db.lock
+
+# JavaFX (optional)
+javapackage/
+
+# JetBrains IDEA
+*.iml
+
+# Other generated files
+*.db
+
+# JRebel (optional if used)
+.rebel
