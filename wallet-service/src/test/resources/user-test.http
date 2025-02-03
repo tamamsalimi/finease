@@ -1,7 +1,0 @@
-### Get Authenticated User's Details
-GET http://localhost:8080/users/me
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqb2huLmRvZUBleGFtcGxlLmNvbSIsImlhdCI6MTczODE2NzQzOSwiZXhwIjoxNzM4MjUzODM5fQ._CKz6bLK-VgGj8xtWFCgnHkHyqB02dnPqPeTmvaKiac
-
-### Get All Users (Admin or Authorized User)
-GET http://localhost:8080/users
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqb2huLmRvZUBleGFtcGxlLmNvbSIsImlhdCI6MTczODE2NzE2MywiZXhwIjoxNzM4MjUzNTYzfQ.YJV7DwivOCBjJnjZV_XimAVnbWPrmNyOl6BIyeVdDSM

@@ -1,0 +1,16 @@
+### Test Create Client API (POST Request)
+POST http://localhost:8080/v1/session
+Content-Type: application/json
+secret_key: my-secret-key
+
+### Test Deactivate Client API (PUT Request)
+PUT http://localhost:8080/v1/session/deactivate
+Content-Type: application/json
+secret_key: my-secret-key
+
+{
+  "client_name": "Valid Client",
+  "application_id": "_VqE4FpW-ADs9T_ktFBAbg",
+  "api_key": "390391c916b2452f8b6b4c42615b5366ac19ca31bf2c487cb6d66ffb27f13d43"
+}
+

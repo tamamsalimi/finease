@@ -5,6 +5,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Entity
 @Data
@@ -21,7 +22,7 @@ public class Account {
     private String accountName;
     
     @Column(nullable = false)
-    private Integer clientId;
+    private Long sessionId;
     
     @Column(nullable = false)
     private char status = 'I';
@@ -39,5 +40,8 @@ public class Account {
     protected void onUpdate() {
         updatedDatetime = LocalDateTime.now();
     }
+
+    @OneToMany(mappedBy = "account", fetch = FetchType.LAZY) // Force immediate loading
+    private List<Transaction> transactions;
 
 }

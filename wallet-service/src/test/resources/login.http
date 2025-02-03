@@ -1,0 +1,9 @@
+### create account
+POST http://localhost:8080/v1/login
+Content-Type: application/json
+application-id: zMrC1R0MyaRAyRxRrTPZlA
+api-key: 18673025e2954863875913d2e88588b080777e9038ef483e83413773f518df55
+
+{
+  "account_name": "alice"
+}

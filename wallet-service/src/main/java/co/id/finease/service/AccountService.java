@@ -1,11 +1,12 @@
 package co.id.finease.service;
 
+import co.id.finease.dto.AccountRequest;
 import co.id.finease.entity.Account;
 import co.id.finease.repository.AccountRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
+import java.text.DecimalFormat;
 import java.util.Optional;
 
 @Service
@@ -13,35 +14,37 @@ public class AccountService {
     @Autowired
     private AccountRepository accountRepository;
 
-    public List<Account> getAllAccounts() {
-        return accountRepository.findAll();
+    @Autowired
+    private SessionService sessionService;
+
+    private static final String PREFIX = "RFID";
+    private static final DecimalFormat FORMATTER = new DecimalFormat("0000000000"); // Ensures 10-digit format
+
+
+    public Optional<Account> getAccountRef(String accountRef) {
+        var sessionId = sessionService.getSessionIdFromSecurityContext();
+        return accountRepository.findByAccountRefAndSessionId(accountRef, sessionId);
     }
 
-    public Optional<Account> getAccountByRef(String accountRef) {
-        return accountRepository.findByAccountRef(accountRef);
-    }
-
-    public Account createAccount(Account account) {
-        // Check if an account with the same client_id and account_name already exists
-        Optional<Account> existingAccount = accountRepository.findByClientIdAndAccountName(account.getClientId(), account.getAccountName());
+    public Account createAccount(AccountRequest accountRequest) {
+        var sessionId = sessionService.getSessionIdFromSecurityContext();
+        Optional<Account> existingAccount = accountRepository.findBySessionIdAndAccountName(sessionId, accountRequest.getAccountName());
         if (existingAccount.isPresent()) {
-            throw new RuntimeException("Account with the same client_id and account_name already exists");
+            return existingAccount.get();
         }
+        // Mapping AccountRequest to Account entity
+        Account account = new Account();
+        account.setAccountRef(generateAccountRefId());
+        account.setAccountName(accountRequest.getAccountName());
+        account.setSessionId(sessionId);
+        account.setStatus('A');
+        // Save the account and return it
         return accountRepository.save(account);
     }
 
-    public Account updateAccount(Long accountId, Account updatedAccount) {
-        return accountRepository.findById(accountId)
-                .map(account -> {
-                    account.setAccountName(updatedAccount.getAccountName());
-                    account.setStatus(updatedAccount.getStatus());
-                    account.setBalance(updatedAccount.getBalance());
-                    return accountRepository.save(account);
-                })
-                .orElseThrow(() -> new RuntimeException("Account not found"));
+    public String generateAccountRefId() {
+        String formattedSequence = FORMATTER.format(accountRepository.getNextSequenceValue());
+        return PREFIX + formattedSequence;
     }
 
-    public void deleteAccount(Long accountId) {
-        accountRepository.deleteById(accountId);
-    }
 }
