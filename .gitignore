@@ -5,6 +5,7 @@
 *.war
 *.ear
 *.db
+*.logs
 
 # Maven
 /.mvn/

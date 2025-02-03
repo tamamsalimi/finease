@@ -89,11 +89,13 @@ logout() {
 }
 
 exit_script() {
+    rm -f "$SESSION_FILE" "$LOGIN_SESSION_FILE"  # Remove session files
     trap - EXIT  # Remove the EXIT trap to avoid duplicate messages
     STOP_RESPONSE=$(stop_session 2>&1)
     if [[ ! "$STOP_RESPONSE" =~ "No active Session found" ]]; then
-        echo "Session cleared. Goodbye!"
+        echo "Session cleared!"
     fi
+    echo "Goodbye!"
     exit 0
 }
 
