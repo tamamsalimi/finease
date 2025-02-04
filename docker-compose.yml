@@ -9,7 +9,7 @@ services:
     build:
       context: ./wallet-service
       dockerfile: Dockerfile
-    container_name: wallet-service-1
+    container_name: wallet-service
     restart: always
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://mypostgres:5432/mydatabase
@@ -19,19 +19,40 @@ services:
       - APP_SECRET_KEY=my-secret-key
     networks:
       - finease_network
+    depends_on:
+      mypostgres:
+        condition: service_healthy  # Ensure database is ready before starting the service
     ports:
-      - "8080:8080"  # Ensure it's accessible by atm
+      - "8080:8080"
 
   atm:
     build:
-      context: ./atm  # Ensure the shell script is in this directory
+      context: ./atm
       dockerfile: Dockerfile
     container_name: atm-service
-    restart: "no"  # Prevent auto-restart if it fails
-    working_dir: /app  # Ensure the script runs from the correct location
-    entrypoint: [ "/bin/bash", "-c", "./start.sh" ]  # Properly execute the script
+    restart: "no"
+    working_dir: /app
+    command: [ "tail", "-f", "/dev/null" ]  # Keeps the container running
     depends_on:
       wallet-service:
-        condition: service_started  # Ensure wallet-service is running before atm starts
+        condition: service_started
     networks:
       - finease_network
+
+  mypostgres:
+    image: postgres:latest
+    container_name: mypostgres
+    restart: always
+    environment:
+      POSTGRES_DB: mydatabase
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+    networks:
+      - finease_network
+    ports:
+      - "5432:5432"  # Expose PostgreSQL port
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser -d mydatabase"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

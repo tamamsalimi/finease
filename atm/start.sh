@@ -1,6 +1,6 @@
 #!/bin/bash
 
-API_BASE_URL="http://localhost:8080"
+API_BASE_URL="http://wallet-service:8080"
 SESSION_FILE="session.txt"
 LOGIN_SESSION_FILE="session_login.txt"
 SECRET_KEY="my-secret-key"

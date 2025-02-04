@@ -11,4 +11,5 @@ COPY start.sh /app/start.sh
 
 RUN chmod +x /app/start.sh
 
-ENTRYPOINT ["/app/start.sh"]
+# Default to a shell instead of running the script
+CMD ["sh"]
