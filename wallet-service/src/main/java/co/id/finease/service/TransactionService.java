@@ -44,6 +44,9 @@ public class TransactionService {
 
     @Transactional
     public TransactionResponse processTransaction(String referenceId, String recipientId, BigDecimal amount, TransactionType transactionType) {
+        if (referenceId == null || amount == null || transactionType == null) {
+            throw new IllegalArgumentException("Reference ID, amount, and transaction type cannot be null");
+        }
         TransactionResponse response;
             Account account = sessionService.getAccountIdFromSecurityContext();
             List<Transaction> transactions;
@@ -148,7 +151,7 @@ public class TransactionService {
             BigDecimal remainingAmount, String status) {
         OwedTransaction partialTransaction = new OwedTransaction();
         partialTransaction.setTransaction(transaction);
-        partialTransaction.setOwedTransactionID(generateRefTransactionId());
+        partialTransaction.setOwedTransactionID(owedTransactionService.generateRefTransactionId());
         partialTransaction.setStatus(status); // Set status to PARTIALLY_PAID
         partialTransaction.setAmount(remainingAmount.abs()); // Set the remaining positive amount
         partialTransaction.setPayFrom(payFrom); // Use the same payer

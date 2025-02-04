@@ -7,7 +7,6 @@ import co.id.finease.entity.Account;
 import co.id.finease.entity.Session;
 import co.id.finease.repository.SessionRepository;
 import co.id.finease.utils.Constants;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -20,11 +19,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class SessionService {
 
     private final SessionRepository sessionRepository;
     private static final SecureRandom secureRandom = new SecureRandom();
+
+    public SessionService(SessionRepository sessionRepository) {
+        this.sessionRepository = sessionRepository;
+    }
 
     @Transactional
     public SessionResponse generateSession() {

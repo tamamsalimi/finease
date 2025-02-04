@@ -2,20 +2,14 @@ package co.id.finease.service;
 
 import co.id.finease.dto.OwedTransactionItem;
 import co.id.finease.entity.Account;
-import co.id.finease.entity.OwedTransaction;
-import co.id.finease.entity.Transaction;
 import co.id.finease.repository.AccountRepository;
 import co.id.finease.repository.OwedTransactionRepository;
 import co.id.finease.repository.TransactionRepository;
-import co.id.finease.utils.Constants;
-import co.id.finease.utils.TransactionType;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -26,15 +20,9 @@ public class OwedTransactionService {
 
     private final OwedTransactionRepository owedTransactionRepository;
 
-    private final TransactionRepository transactionRepository;
-
-    private final AccountRepository accountRepository;
-
-    public OwedTransactionService(SessionService sessionService, OwedTransactionRepository owedTransactionRepository, TransactionRepository transactionRepository, AccountRepository accountRepository) {
+    public OwedTransactionService(SessionService sessionService, OwedTransactionRepository owedTransactionRepository) {
         this.sessionService = sessionService;
         this.owedTransactionRepository = owedTransactionRepository;
-        this.transactionRepository = transactionRepository;
-        this.accountRepository = accountRepository;
     }
     public String generateRefTransactionId() {
         Long sequenceValue = owedTransactionRepository.getNextSequenceValue();

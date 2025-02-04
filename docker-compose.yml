@@ -1,0 +1,37 @@
+version: "3.8"
+
+networks:
+  finease_network:
+    external: true  # Use existing external network
+
+services:
+  wallet-service:
+    build:
+      context: ./wallet-service
+      dockerfile: Dockerfile
+    container_name: wallet-service-1
+    restart: always
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://mypostgres:5432/mydatabase
+      - SPRING_DATASOURCE_USERNAME=myuser
+      - SPRING_DATASOURCE_PASSWORD=mypassword
+      - SPRING_APPLICATION_NAME=wallet-service
+      - APP_SECRET_KEY=my-secret-key
+    networks:
+      - finease_network
+    ports:
+      - "8080:8080"  # Ensure it's accessible by atm
+
+  atm:
+    build:
+      context: ./atm  # Ensure the shell script is in this directory
+      dockerfile: Dockerfile
+    container_name: atm-service
+    restart: "no"  # Prevent auto-restart if it fails
+    working_dir: /app  # Ensure the script runs from the correct location
+    entrypoint: [ "/bin/bash", "-c", "./start.sh" ]  # Properly execute the script
+    depends_on:
+      wallet-service:
+        condition: service_started  # Ensure wallet-service is running before atm starts
+    networks:
+      - finease_network
