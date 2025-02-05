@@ -21,6 +21,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class TransactionService {
@@ -48,28 +49,30 @@ public class TransactionService {
             throw new IllegalArgumentException("Reference ID, amount, and transaction type cannot be null");
         }
         TransactionResponse response;
-            Account account = sessionService.getAccountIdFromSecurityContext();
-            List<Transaction> transactions;
+        Account account = sessionService.getAccountIdFromSecurityContext();
+        List<Transaction> transactions;
 
-            switch (transactionType) {
-                case WITHDRAW:
-                    transactions = handleWithdraw(referenceId, account, amount);
-                    break;
-                case DEPOSIT:
-                    transactions = handleDeposit(referenceId, account, amount, TransactionType.DEPOSIT);
-                    break;
-                case TRANSFER:
-                    transactions = handleTransfer(referenceId, account, recipientId, amount);
-                    break;
-                default:
-                    throw new IllegalArgumentException("Invalid transaction type: " + transactionType);
-            }
-            response = convertToDTO(transactions);
-            response.setAccountResult(new AccountResult(account.getAccountRef(), account.getBalance(), account.getAccountName()));
-            response.setOwedBy(owedTransactionService.getAmountsOwedByMe(account));
-            response.setOwedTo(owedTransactionService.getOwedTransactionSummary(account));
-            return response;
+        switch (transactionType) {
+            case WITHDRAW:
+                transactions = handleWithdraw(referenceId, account, amount);
+                break;
+            case DEPOSIT:
+                transactions = handleDeposit(referenceId, account, amount, TransactionType.DEPOSIT);
+                break;
+            case TRANSFER:
+                transactions = handleTransfer(referenceId, account, recipientId, amount);
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid transaction type: " + transactionType);
+        }
+        response = convertToDTO(transactions);
+        Optional<Account> optional = accountRepository.findByAccountRefAndSessionId(account.getAccountRef(),account.getSessionId());
+        response.setAccountResult(new AccountResult(account.getAccountRef(),optional.get().getBalance(),account.getAccountName()));
+        response.setOwedBy(owedTransactionService.getAmountsOwedByMe(account));
+        response.setOwedTo(owedTransactionService.getOwedTransactionSummary(account));
+        return response;
     }
+
     private List<Transaction> handleWithdraw(String referenceId, Account account, BigDecimal amount) {
         if (account.getBalance().compareTo(amount) < 0) {
             throw new RuntimeException("Insufficient funds for withdraw transaction");
@@ -162,6 +165,9 @@ public class TransactionService {
     private List<Transaction> handleTransfer(String referenceId, Account account,
                                              String recipientName,
                                              BigDecimal amount) {
+        if (account.getBalance().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("Insufficient funds for transfer transaction");
+        }
         Account recipient = accountRepository.findActiveAccountNameWithLockAndSessionId(recipientName, account.getSessionId())
                 .orElseThrow(() -> new RuntimeException("Recipient account is inactive or not found"));
         List<Transaction> transactions = new ArrayList<>();
@@ -170,68 +176,65 @@ public class TransactionService {
         List<OwedTransaction> transactionList = owedTransactionRepository.findByPayFromAndRecipientAndStatusIn(recipient, account, hardcodedStatuses, sort);
         if (account.getBalance().compareTo(BigDecimal.ZERO) > 0 && transactionList.size() == 0) {
             BigDecimal balance = account.getBalance().subtract(amount);
-            Transaction transaction = transactionRepository.save(createNewTransaction(referenceId,
+            Transaction transaction = createNewTransaction(referenceId,
                     generateRefTransactionId(),
                     account, recipient,
                     amount, TransactionType.TRANSFER,
-                    BigDecimal.ZERO));
-            transactions.add(transaction);
+                    account.getBalance().subtract(amount));
             if (balance.compareTo(BigDecimal.ZERO) < 0) {
                 OwedTransaction owedTransaction = createOwedTransaction(transaction, account, recipient, balance, Constants.STATUS_UNPAID);
                 owedTransactionRepository.save(owedTransaction);
                 balance = BigDecimal.ZERO;
                 amount = account.getBalance();
+                transaction.setAmount(account.getBalance());
             }
             account.setBalance(balance);
             accountRepository.save(account);
 
             recipient.setBalance(recipient.getBalance().add(amount));
             accountRepository.save(recipient);
-        } else {
-            Transaction transaction = transactionRepository.save(createNewTransaction(referenceId,
-                    generateRefTransactionId(),
-                    account, recipient,
-                    amount, TransactionType.TRANSFER,
-                    account.getBalance().subtract(amount)));
-            if (transactionList.size() > 0) {
-                for (OwedTransaction owedTransaction : transactionList) {
-                    if (amount.compareTo(BigDecimal.ZERO) <= 0) {
-                        break; // If no more amount needs to be paid, exit the loop
-                    }
-                    BigDecimal remainingOwedAmount = amount.subtract(owedTransaction.getAmount());
-                    if (remainingOwedAmount.compareTo(BigDecimal.ZERO) <= 0) {
-                        owedTransaction.setStatus(Constants.STATUS_PAID);  // Mark as PAID
-                        owedTransaction.setAmount(amount);
-                        owedTransaction.setUpdateAt(LocalDateTime.now());
-                        owedTransactionRepository.save(owedTransaction);
-                        if (remainingOwedAmount.compareTo(BigDecimal.ZERO) < 0) {
-                            OwedTransaction remainingOwedTransaction = createOwedTransaction(transaction, account, recipient, remainingOwedAmount, Constants.STATUS_UNPAID);
-                            owedTransactionRepository.save(remainingOwedTransaction);
-                        }
-                    } else {
-                        owedTransaction.setStatus(Constants.STATUS_PAID);  // Mark as PAID
-                        owedTransaction.setAmount(owedTransaction.getAmount());
-                        owedTransaction.setUpdateAt(LocalDateTime.now());
-                        owedTransactionRepository.save(owedTransaction);
-                        amount = remainingOwedAmount;
-                    }
-                }
-                if (amount.compareTo(BigDecimal.ZERO) > 0) {
-                    account.setBalance(account.getBalance().subtract(amount));
-                    accountRepository.save(account);
-
-                    recipient.setBalance(recipient.getBalance().add(amount));
-                    accountRepository.save(account);
-
-                    transaction.setAmount(amount);
-                    transaction.setBalanceAfter(amount);
-                    transactionRepository.save(transaction);
-                }
-            } else {
-                OwedTransaction partialOwedTransaction = createOwedTransaction(transaction, account, recipient, amount, Constants.STATUS_UNPAID);
-                owedTransactionRepository.save(partialOwedTransaction);
-            }
+            transactionRepository.save(transaction);
             transactions.add(transaction);
+        } else {
+            for (OwedTransaction owedTransaction : transactionList) {
+                if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+                    break; // If no more amount needs to be paid, exit the loop
+                }
+                BigDecimal remainingOwedAmount = amount.subtract(owedTransaction.getAmount());
+                if (remainingOwedAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                    owedTransaction.setStatus(Constants.STATUS_PAID);  // Mark as PAID
+                    owedTransaction.setAmount(amount);
+                    owedTransaction.setUpdateAt(LocalDateTime.now());
+                    owedTransactionRepository.save(owedTransaction);
+                    if (remainingOwedAmount.compareTo(BigDecimal.ZERO) < 0) {
+                        OwedTransaction remainingOwedTransaction = createOwedTransaction(null, account, recipient, remainingOwedAmount, Constants.STATUS_UNPAID);
+                        owedTransactionRepository.save(remainingOwedTransaction);
+                    }
+                    amount = remainingOwedAmount;
+                } else {
+                    owedTransaction.setStatus(Constants.STATUS_PAID);  // Mark as PAID
+                    owedTransaction.setAmount(owedTransaction.getAmount());
+                    owedTransaction.setUpdateAt(LocalDateTime.now());
+                    owedTransactionRepository.save(owedTransaction);
+                    amount = remainingOwedAmount;
+                }
+            }
+            if (amount.compareTo(BigDecimal.ZERO) > 0) {
+                Transaction transaction = transactionRepository.save(createNewTransaction(referenceId,
+                        generateRefTransactionId(),
+                        account, recipient,
+                        amount, TransactionType.TRANSFER,
+                        account.getBalance().subtract(amount)));
+                account.setBalance(account.getBalance().subtract(amount));
+                accountRepository.save(account);
+
+                recipient.setBalance(recipient.getBalance().add(amount));
+                accountRepository.save(account);
+
+                transaction.setAmount(amount);
+                transaction.setBalanceAfter(amount);
+                transactionRepository.save(transaction);
+            }
         }
         return transactions;
     }
@@ -256,10 +259,6 @@ public class TransactionService {
             results.add(result);
         }
         TransactionResponse transactionResponse = new TransactionResponse();
-        transactionResponse.setResults(results);
-        transactionResponse.setAccountResult(new AccountResult(transactions.get(0).getAccount().getAccountRef(),
-                transactions.get(0).getAccount().getBalance(),
-                transactions.get(0).getAccount().getAccountName()));
         transactionResponse.setStatus("Success");
         transactionResponse.setMessage("Transaction Successfully");
         return transactionResponse;

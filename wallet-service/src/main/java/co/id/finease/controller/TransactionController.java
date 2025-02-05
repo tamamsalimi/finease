@@ -38,15 +38,15 @@ public class TransactionController {
                     request.getTransactionType());
         } catch (IllegalArgumentException e) {
             log.error("Transaction failed due to invalid input: {}", e.getMessage());
-            ResponseEntity.internalServerError().body(buildErrorResponse("Invalid transaction type", e.getMessage()));
+            return ResponseEntity.internalServerError().body(buildErrorResponse("Invalid transaction type", e.getMessage()));
 
         } catch (RuntimeException e) {
             log.error("Transaction processing failed: {}", e.getMessage(), e);
-            ResponseEntity.internalServerError().body(buildErrorResponse("Transaction processing error", e.getMessage()));
+            return ResponseEntity.internalServerError().body(buildErrorResponse("Transaction processing error", e.getMessage()));
 
         } catch (Exception e) {
             log.error("Unexpected error occurred: {}", e.getMessage(), e);
-            ResponseEntity.internalServerError().body(buildErrorResponse("Unexpected system error", "Please contact support."));
+            return ResponseEntity.internalServerError().body(buildErrorResponse("Unexpected system error", "Please contact support."));
         }
         return ResponseEntity.ok(response);
     }

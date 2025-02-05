@@ -9,16 +9,35 @@ ACCOUNT_ID=""
 ACCOUNT_NAME=""
 
 start_session() {
-    RESPONSE=$(curl -s -X POST "$API_BASE_URL/v1/session" -H "Content-Type: application/json" -H "secret_key: $SECRET_KEY")
-    API_KEY=$(echo "$RESPONSE" | jq -r '.api_key')
-    APPLICATION_ID=$(echo "$RESPONSE" | jq -r '.application_id')
+    RESPONSE=$(curl -s -X POST "$API_BASE_URL/v1/session" -H "Content-Type: application/json" -H "secret_key: $SECRET_KEY" -w "%{http_code}" -o response.json)
+    HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
+    RESPONSE_BODY=$(<response.json)
+
+    if [[ "$HTTP_STATUS" -ge 400 ]]; then
+        ERROR_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message')
+        echo "Error: HTTP $HTTP_STATUS - $ERROR_MESSAGE"
+        echo "Response file saved: response.json"
+        return 1
+    fi
+
+    API_KEY=$(echo "$RESPONSE_BODY" | jq -r '.api_key')
+    APPLICATION_ID=$(echo "$RESPONSE_BODY" | jq -r '.application_id')
     echo "$API_KEY $APPLICATION_ID" > "$SESSION_FILE"
 }
 
 stop_session() {
     if [ -f "$SESSION_FILE" ]; then
         read API_KEY APPLICATION_ID < "$SESSION_FILE"
-        curl -s -X PUT "$API_BASE_URL/v1/session/deactivate" -H "Content-Type: application/json" -H "secret_key: $SECRET_KEY" -d "{\"application_id\": \"$APPLICATION_ID\", \"api_key\": \"$API_KEY\"}"
+        RESPONSE=$(curl -s -X PUT "$API_BASE_URL/v1/session/deactivate" -H "Content-Type: application/json" -H "secret_key: $SECRET_KEY" -d "{\"application_id\": \"$APPLICATION_ID\", \"api_key\": \"$API_KEY\"}" -w "%{http_code}" -o response.json)
+        HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
+        RESPONSE_BODY=$(<response.json)
+
+        if [[ "$HTTP_STATUS" -ge 400 ]]; then
+            ERROR_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message')
+            echo "Error: HTTP $HTTP_STATUS - $ERROR_MESSAGE"
+            echo "Response file saved: response.json"
+            return 1
+        fi
         echo "$API_KEY $APPLICATION_ID" > "$SESSION_FILE"
     fi
 }
@@ -36,46 +55,120 @@ parse_transaction_response() {
     fi
 }
 
-
 login() {
+    if [ -f "$LOGIN_SESSION_FILE" ]; then
+        echo "A session is already active. Please log out first before logging in again."
+        return 1
+    fi
+
+    if [ -z "$1" ]; then
+        echo "Error: Username is required for login."
+        return 1
+    fi
+
     USERNAME=$1
     read API_KEY APPLICATION_ID < "$SESSION_FILE"
-    RESPONSE=$(curl -s -X POST "$API_BASE_URL/v1/login" -H "Content-Type: application/json" -H "application-id: $APPLICATION_ID" -H "api-key: $API_KEY" -d "{\"account_name\": \"$USERNAME\"}")
-    ACCOUNT_ID=$(echo "$RESPONSE" | jq -r '.account.account_id // empty')
-    ACCOUNT_NAME=$(echo "$RESPONSE" | jq -r '.account.name // empty')
+    RESPONSE=$(curl -s -X POST "$API_BASE_URL/v1/login" -H "Content-Type: application/json" -H "application-id: $APPLICATION_ID" -H "api-key: $API_KEY" -d "{\"account_name\": \"$USERNAME\"}" -w "%{http_code}" -o response.json)
+    HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
+    RESPONSE_BODY=$(<response.json)
+
+    if [[ "$HTTP_STATUS" -ge 400 ]]; then
+        ERROR_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message')
+        echo "$ERROR_MESSAGE"
+        return 1
+    fi
+
+    ACCOUNT_ID=$(echo "$RESPONSE_BODY" | jq -r '.account.account_id // empty')
+    ACCOUNT_NAME=$(echo "$RESPONSE_BODY" | jq -r '.account.name // empty')
     if [[ -n "$ACCOUNT_ID" && -n "$ACCOUNT_NAME" ]]; then
         echo "$API_KEY $APPLICATION_ID $ACCOUNT_ID $ACCOUNT_NAME" > "$LOGIN_SESSION_FILE"
         echo "Hello, $ACCOUNT_NAME!"
-        parse_transaction_response "$RESPONSE"
-        echo "Your balance is \$$(echo "$RESPONSE" | jq -r '.account.balance // 0')"
+        parse_transaction_response "$RESPONSE_BODY"
+        echo "Your balance is \$$(echo "$RESPONSE_BODY" | jq -r '.account.balance // 0')"
     else
         echo "Login failed or invalid response."
     fi
 }
 
+validate_amount() {
+    if ! [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        echo "Error: Amount must be a valid number."
+        return 1
+    fi
+}
+
 deposit() {
+    if [ -z "$1" ]; then
+        echo "Error: Amount is required for deposit."
+        return 1
+    fi
+    validate_amount "$1" || return 1
+
     read API_KEY APPLICATION_ID ACCOUNT_ID ACCOUNT_NAME < "$LOGIN_SESSION_FILE"
     AMOUNT=$1
-    RESPONSE=$(curl -s -X POST "$API_BASE_URL/v2/transactions" -H "Content-Type: application/json" -H "application-id: $APPLICATION_ID" -H "api-key: $API_KEY" -H "account-id: $ACCOUNT_ID" -d "{\"reference_id\": \"$REFERENCE_ID\", \"amount\": $AMOUNT, \"transaction_type\": \"DEPOSIT\"}")
-    parse_transaction_response "$RESPONSE"
-    echo "Your balance is \$$(echo "$RESPONSE" | jq -r '.account.balance // 0')"
+    RESPONSE=$(curl -s -X POST "$API_BASE_URL/v2/transactions" -H "Content-Type: application/json" -H "application-id: $APPLICATION_ID" -H "api-key: $API_KEY" -H "account-id: $ACCOUNT_ID" -d "{\"reference_id\": \"$REFERENCE_ID\", \"amount\": $AMOUNT, \"transaction_type\": \"DEPOSIT\"}" -w "%{http_code}" -o response.json)
+    HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
+    RESPONSE_BODY=$(<response.json)
+
+    if [[ "$HTTP_STATUS" -ge 400 ]]; then
+        ERROR_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message')
+        echo "$ERROR_MESSAGE"
+        return 1
+    fi
+
+    parse_transaction_response "$RESPONSE_BODY"
+    echo "Your balance is \$$(echo "$RESPONSE_BODY" | jq -r '.account.balance // 0')"
 }
 
 withdraw() {
+    if [ -z "$1" ]; then
+        echo "Error: Amount is required for withdrawal."
+        return 1
+    fi
+    validate_amount "$1" || return 1
+
     read API_KEY APPLICATION_ID ACCOUNT_ID ACCOUNT_NAME < "$LOGIN_SESSION_FILE"
     AMOUNT=$1
-    RESPONSE=$(curl -s -X POST "$API_BASE_URL/v2/transactions" -H "Content-Type: application/json" -H "application-id: $APPLICATION_ID" -H "api-key: $API_KEY" -H "account-id: $ACCOUNT_ID" -d "{\"reference_id\": \"$REFERENCE_ID\", \"amount\": $AMOUNT, \"transaction_type\": \"WITHDRAW\"}")
-    parse_transaction_response "$RESPONSE"
-    echo "Your balance is \$$(echo "$RESPONSE" | jq -r '.account.balance // 0')"
+    RESPONSE=$(curl -s -X POST "$API_BASE_URL/v2/transactions" -H "Content-Type: application/json" -H "application-id: $APPLICATION_ID" -H "api-key: $API_KEY" -H "account-id: $ACCOUNT_ID" -d "{\"reference_id\": \"$REFERENCE_ID\", \"amount\": $AMOUNT, \"transaction_type\": \"WITHDRAW\"}" -w "%{http_code}" -o response.json)
+    HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
+    RESPONSE_BODY=$(<response.json)
+
+    if [[ "$HTTP_STATUS" -ge 400 ]]; then
+        ERROR_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message')
+        echo "$ERROR_MESSAGE"
+        return 1
+    fi
+
+    parse_transaction_response "$RESPONSE_BODY"
+    echo "Your balance is \$$(echo "$RESPONSE_BODY" | jq -r '.account.balance // 0')"
 }
 
 transfer() {
+    if [ -z "$1" ]; then
+        echo "Error: Target account is required for transfer."
+        return 1
+    fi
+    if [ -z "$2" ]; then
+        echo "Error: Amount is required for transfer."
+        return 1
+    fi
+    validate_amount "$2" || return 1
+
     read API_KEY APPLICATION_ID ACCOUNT_ID ACCOUNT_NAME < "$LOGIN_SESSION_FILE"
     TARGET=$1
     AMOUNT=$2
-    RESPONSE=$(curl -s -X POST "$API_BASE_URL/v2/transactions" -H "Content-Type: application/json" -H "application-id: $APPLICATION_ID" -H "api-key: $API_KEY" -H "account-id: $ACCOUNT_ID" -d "{\"reference_id\": \"$REFERENCE_ID\", \"amount\": $AMOUNT, \"transaction_type\": \"TRANSFER\", \"recipient\": \"$TARGET\"}")
-    parse_transaction_response "$RESPONSE"
-    echo "Your balance is \$$(echo "$RESPONSE" | jq -r '.account.balance // 0')"
+    RESPONSE=$(curl -s -X POST "$API_BASE_URL/v2/transactions" -H "Content-Type: application/json" -H "application-id: $APPLICATION_ID" -H "api-key: $API_KEY" -H "account-id: $ACCOUNT_ID" -d "{\"reference_id\": \"$REFERENCE_ID\", \"amount\": $AMOUNT, \"transaction_type\": \"TRANSFER\", \"recipient\": \"$TARGET\"}" -w "%{http_code}" -o response.json)
+    HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
+    RESPONSE_BODY=$(<response.json)
+
+    if [[ "$HTTP_STATUS" -ge 400 ]]; then
+        ERROR_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message')
+        echo "$ERROR_MESSAGE"
+        return 1
+    fi
+
+    parse_transaction_response "$RESPONSE_BODY"
+    echo "Your balance is \$$(echo "$RESPONSE_BODY" | jq -r '.account.balance // 0')"
 }
 
 logout() {
@@ -89,6 +182,10 @@ logout() {
 }
 
 exit_script() {
+    if [ -f "$LOGIN_SESSION_FILE" ]; then
+        echo "Please log out first before exit."
+        return 1
+    fi
     rm -f "$SESSION_FILE" "$LOGIN_SESSION_FILE"  # Remove session files
     trap - EXIT  # Remove the EXIT trap to avoid duplicate messages
     STOP_RESPONSE=$(stop_session 2>&1)
