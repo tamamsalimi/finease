@@ -86,7 +86,7 @@ class TransactionServiceTest {
                 "REF123", null, new BigDecimal("300"), TransactionType.DEPOSIT);
 
         assertNotNull(response);
-        assertEquals(new BigDecimal("500"), account.getBalance());
+        assertEquals(new BigDecimal("200"), account.getBalance());
         assertEquals(Constants.STATUS_PAID, owedTransaction.getStatus());
         verify(owedTransactionRepository, times(1)).save(owedTransaction);
         verify(accountRepository, times(1)).save(account);

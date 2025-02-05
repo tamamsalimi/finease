@@ -18,10 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 @Service
 public class TransactionService {
@@ -57,8 +54,8 @@ public class TransactionService {
         };
 
         response = convertToDTO(transactions);
-        Optional<Account> optional = accountRepository.findByAccountRefAndSessionId(account.getAccountRef(),account.getSessionId());
-        response.setAccountResult(new AccountResult(account.getAccountRef(), optional.map(Account::getBalance).orElse(null),account.getAccountName()));
+        Optional<Account> optional = accountRepository.findByAccountRefAndSessionId(account.getAccountRef(), account.getSessionId());
+        response.setAccountResult(new AccountResult(account.getAccountRef(), optional.map(Account::getBalance).orElse(null), account.getAccountName()));
         response.setOwedBy(owedTransactionService.getAmountsOwedByMe(account));
         response.setOwedTo(owedTransactionService.getOwedTransactionSummary(account));
         return response;
@@ -79,50 +76,85 @@ public class TransactionService {
         return List.of(transaction);
     }
 
-    private List<Transaction> handleDeposit(String referenceId, Account account, BigDecimal amount) {
+    public List<Transaction> handleDeposit(String referenceId, Account account, BigDecimal amount) {
         Sort sort = Sort.by("createdAt");
         List<String> hardcodedStatuses = Arrays.asList(Constants.STATUS_UNPAID, Constants.STATUS_PARTIALLY_PAID);
         List<OwedTransaction> transactionList = owedTransactionRepository.findByPayFromAndStatusIn(account, hardcodedStatuses, sort);
         String transactionId = generateRefTransactionId();
         List<Transaction> transactions = new ArrayList<>();
-        if (transactionList.size() > 0) {
+        if (!transactionList.isEmpty()) {
             for (OwedTransaction owedTransaction : transactionList) {
-                if (amount.compareTo(BigDecimal.ZERO) <= 0) {
-                    break;
-                }
-                BigDecimal remainingAmount = amount.subtract(owedTransaction.getAmount());
+                if (amount.compareTo(BigDecimal.ZERO) <= 0) break; // Stop if no amount left to process
+                BigDecimal owedAmount = owedTransaction.getAmount();
+                BigDecimal remainingAmount = amount.subtract(owedAmount);
                 Account recipient = owedTransaction.getRecipient();
                 if (remainingAmount.compareTo(BigDecimal.ZERO) >= 0) {
-                    owedTransaction.setStatus(Constants.STATUS_PAID);
-                    owedTransaction.setUpdateAt(LocalDateTime.now());
-                    owedTransactionRepository.save(owedTransaction);
-                    recipient.setBalance(recipient.getBalance().add(owedTransaction.getAmount()));
-                    accountRepository.save(recipient);
+                    processFullOwedPayment(referenceId, transactionId, account, recipient, owedTransaction, owedAmount, remainingAmount, transactions);
                 } else {
-                    owedTransaction.setStatus(Constants.STATUS_PAID);
-                    owedTransaction.setAmount(amount);
-                    owedTransactionRepository.save(owedTransaction);
-                    recipient.setBalance(recipient.getBalance().add(owedTransaction.getAmount()));
-                    accountRepository.save(recipient);
-
-                    if (remainingAmount.compareTo(BigDecimal.ZERO) < 0) {
-                        OwedTransaction partialOwedTransaction = createOwedTransaction(owedTransaction.getTransaction(), account, recipient, remainingAmount, Constants.STATUS_PARTIALLY_PAID);
-                        owedTransactionRepository.save(partialOwedTransaction);
-                        remainingAmount = BigDecimal.ZERO;
-                    }
+                    processPartialOwedPayment(referenceId, transactionId, account, recipient, owedTransaction, amount, remainingAmount, transactions);
                 }
-                Transaction transaction = transactionRepository.save(createNewTransaction(referenceId, transactionId, account, recipient, owedTransaction.getAmount(), TransactionType.TRANSFER, remainingAmount));
-                transactions.add(transaction);
                 amount = remainingAmount;
             }
+            if (amount.compareTo(BigDecimal.ZERO) > 0) {
+                account.setBalance(account.getBalance().add(amount));
+            }
+        } else {
+            account.setBalance(account.getBalance().add(amount));
         }
-        Transaction transaction = transactionRepository.save(createNewTransaction(
-                referenceId, transactionId, account, null, amount, TransactionType.DEPOSIT,
-                account.getBalance().add(amount)));
-        transactions.add(transaction);
-        account.setBalance(account.getBalance().add(amount));
-        accountRepository.save(account);
+        processDepositTransaction(referenceId, transactionId, account, amount, transactions);
         return transactions;
+    }
+
+    private void processFullOwedPayment(
+            String referenceId, String transactionId, Account account, Account recipient,
+            OwedTransaction owedTransaction, BigDecimal owedAmount, BigDecimal remainingAmount, List<Transaction> transactions) {
+
+        Transaction transaction = createNewTransaction(referenceId, transactionId, account, recipient, owedAmount, TransactionType.TRANSFER, remainingAmount);
+        transactionRepository.save(transaction);
+        transactions.add(transaction);
+
+        // Update OwedTransaction to PAID
+        owedTransaction.setStatus(Constants.STATUS_PAID);
+        owedTransaction.setUpdateAt(LocalDateTime.now());
+        owedTransactionRepository.save(owedTransaction);
+
+        // Update balances
+        recipient.setBalance(recipient.getBalance().add(owedAmount));
+        if (account.getBalance().compareTo(BigDecimal.ZERO) > 0)
+            account.setBalance(account.getBalance().subtract(owedAmount));
+        accountRepository.save(recipient);
+    }
+
+    private void processPartialOwedPayment(
+            String referenceId, String transactionId, Account account, Account recipient,
+            OwedTransaction owedTransaction, BigDecimal amount, BigDecimal remainingAmount, List<Transaction> transactions) {
+
+        Transaction transaction = createNewTransaction(referenceId, transactionId, account, recipient, amount, TransactionType.TRANSFER, remainingAmount);
+        transactionRepository.save(transaction);
+        transactions.add(transaction);
+
+        // Update OwedTransaction to partially paid
+        owedTransaction.setStatus(Constants.STATUS_PAID);
+        owedTransaction.setAmount(amount);
+        owedTransactionRepository.save(owedTransaction);
+
+        // Update recipient balance
+        recipient.setBalance(recipient.getBalance().add(amount));
+        accountRepository.save(recipient);
+        account.setBalance(BigDecimal.ZERO);
+
+        // Create a new owed transaction for the remaining balance
+        if (remainingAmount.compareTo(BigDecimal.ZERO) < 0) {
+            OwedTransaction partialOwedTransaction = createOwedTransaction(owedTransaction.getTransaction(), account, recipient, remainingAmount, Constants.STATUS_PARTIALLY_PAID);
+            owedTransactionRepository.save(partialOwedTransaction);
+        }
+    }
+
+    private void processDepositTransaction(String referenceId, String transactionId, Account account, BigDecimal amount, List<Transaction> transactions) {
+        Transaction transaction = createNewTransaction(referenceId, transactionId, account, null, amount, TransactionType.DEPOSIT, account.getBalance());
+        transactionRepository.save(transaction);
+        transactions.add(transaction);
+        accountRepository.save(account);
     }
 
     private Transaction createNewTransaction(String referenceId, String transactionId,
@@ -232,7 +264,7 @@ public class TransactionService {
     }
 
 
-    private TransactionResponse convertToDTO(List<Transaction> transactions) {
+    public TransactionResponse convertToDTO(List<Transaction> transactions) {
         List<TransactionResult> results = new ArrayList<>();
         for (Transaction t : transactions) {
             TransactionResult result = new TransactionResult(t.getRefTransactionId(),
@@ -261,6 +293,13 @@ public class TransactionService {
         String date = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHH"));
         String formattedSeq = String.format("%04d", sequenceValue);
         return "TRX" + date + formattedSeq;
+    }
+
+    public String generateRefId() {
+        long sequenceValue = 1_000_000L + new Random().nextLong(9_000_000L);
+        String date = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHH"));
+        String formattedSeq = String.format("%04d", sequenceValue);
+        return "RF" + date + formattedSeq;
     }
 
 }

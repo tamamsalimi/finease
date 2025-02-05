@@ -1,9 +1,5 @@
 # finease
 FinEase is a modern, efficient platform designed to streamline financial operations like money transfers, credit, and debit management. Built for reliability and scalability, FinEase ensures seamless handling of transactions, making financial processes effortless and accessible.
-# ATM and Wallet Service
-
-This project provides an ATM Command Line Interface (CLI) application powered by a Spring Boot backend for the Wallet Service. It supports Docker Compose for running the entire system, including a PostgreSQL database. The Wallet Service handles authentication, transactions, and data storage, while the ATM CLI provides an interactive interface for users to interact with their accounts.
-
 ## Features
 
 - **Spring Boot Wallet Service**:
@@ -35,7 +31,15 @@ This project provides an ATM Command Line Interface (CLI) application powered by
 
 ## Running the Project
 
-### 1. Start the Services
+### 1. Build the Wallet Service
+Before running the Docker containers, ensure the Wallet Service JAR is built using Maven:
+
+```bash
+mvn clean install
+```
+
+
+### 2. Start the Services
 
 Use the following commands to manage the Docker Compose environment:
 
@@ -73,7 +77,7 @@ This will start the following containers:
 - **Wallet Service** (Spring Boot application)
 - **PostgreSQL Database**
 
-### 2. Testing the ATM CLI
+### 3. Testing the ATM CLI
 
 After starting the services, execute the ATM CLI from the container:
 
@@ -131,7 +135,7 @@ $ logout
 Goodbye, bob!
 ```
 
-### 3. Testing with HTTP Requests
+### 4. Testing with HTTP Requests
 
 Example HTTP requests are provided for manual testing. Below are sample requests:
 
@@ -187,7 +191,7 @@ account-id: RFID1000000022
 }
 ```
 
-### 4. Logs
+### 5. Logs
 
 Logs for the ATM Service are stored in the container under `/app/activity.log`. You can view them with:
 
@@ -200,3 +204,4 @@ Logs for the Wallet Service can be viewed using:
 ```bash
 docker logs wallet-service
 ```
+

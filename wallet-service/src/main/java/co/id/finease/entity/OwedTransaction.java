@@ -1,7 +1,6 @@
 package co.id.finease.entity;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -29,9 +28,10 @@ public class OwedTransaction {
     private BigDecimal amount;
     private String status; // UNPAID, PARTIALLY_PAID, PAID
 
-    @OneToOne
-    @JoinColumn(name = "transaction_id")
+    @ManyToOne
+    @JoinColumn(name = "transaction_id", referencedColumnName = "id")
     private Transaction transaction;
+
 
     @Column(name = "created_datetime", updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
