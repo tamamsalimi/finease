@@ -8,15 +8,24 @@ REFERENCE_ID=$(date +%s)
 ACCOUNT_ID=""
 ACCOUNT_NAME=""
 
+log_activity() {
+    # This function will log activity to a log file, including date, command, and response
+    echo "$(date) - $1" >> activity.log
+    echo "$2" >> activity.log
+}
+
 start_session() {
+    # Capture both the HTTP status code and the response body in one call
     RESPONSE=$(curl -s -X POST "$API_BASE_URL/v1/session" -H "Content-Type: application/json" -H "secret_key: $SECRET_KEY" -w "%{http_code}" -o response.json)
     HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
-    RESPONSE_BODY=$(<response.json)
+    RESPONSE_BODY=$(<response.json)  # Read the actual response body from the response.json file
+
+    # Log the session start activity with the response body
+    log_activity "Start Session" "$RESPONSE_BODY"
 
     if [[ "$HTTP_STATUS" -ge 400 ]]; then
         ERROR_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message')
         echo "Error: HTTP $HTTP_STATUS - $ERROR_MESSAGE"
-        echo "Response file saved: response.json"
         return 1
     fi
 
@@ -32,26 +41,14 @@ stop_session() {
         HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
         RESPONSE_BODY=$(<response.json)
 
+        # Log the stop session activity with the response body
+        log_activity "Stop Session" "$RESPONSE_BODY"
+
         if [[ "$HTTP_STATUS" -ge 400 ]]; then
             ERROR_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message')
             echo "Error: HTTP $HTTP_STATUS - $ERROR_MESSAGE"
-            echo "Response file saved: response.json"
             return 1
         fi
-        echo "$API_KEY $APPLICATION_ID" > "$SESSION_FILE"
-    fi
-}
-
-parse_transaction_response() {
-    RESPONSE=$1
-    if echo "$RESPONSE" | jq -e '.results | length > 0' >/dev/null 2>&1; then
-        echo "$RESPONSE" | jq -r '.results[] | select(.transaction_type == "TRANSFER") | "Transferred $" + (.amount|tostring) + " to " + .recipient_name'
-    fi
-    if echo "$RESPONSE" | jq -e '.owed_to | length > 0' >/dev/null 2>&1; then
-        echo "$RESPONSE" | jq -r '.owed_to[] | "Owed $" + (.amount|tostring) + " to " + .account_name'
-    fi
-    if echo "$RESPONSE" | jq -e '.owed_by | length > 0' >/dev/null 2>&1; then
-        echo "$RESPONSE" | jq -r '.owed_by[] | "Owed $" + (.amount|tostring) + " by " + .account_name'
     fi
 }
 
@@ -72,6 +69,9 @@ login() {
     HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
     RESPONSE_BODY=$(<response.json)
 
+    # Log the login activity with the response body
+    log_activity "Login" "$RESPONSE_BODY"
+
     if [[ "$HTTP_STATUS" -ge 400 ]]; then
         ERROR_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message')
         echo "$ERROR_MESSAGE"
@@ -90,25 +90,15 @@ login() {
     fi
 }
 
-validate_amount() {
-    if ! [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-        echo "Error: Amount must be a valid number."
-        return 1
-    fi
-}
-
 deposit() {
-    if [ -z "$1" ]; then
-        echo "Error: Amount is required for deposit."
-        return 1
-    fi
-    validate_amount "$1" || return 1
-
     read API_KEY APPLICATION_ID ACCOUNT_ID ACCOUNT_NAME < "$LOGIN_SESSION_FILE"
     AMOUNT=$1
     RESPONSE=$(curl -s -X POST "$API_BASE_URL/v2/transactions" -H "Content-Type: application/json" -H "application-id: $APPLICATION_ID" -H "api-key: $API_KEY" -H "account-id: $ACCOUNT_ID" -d "{\"reference_id\": \"$REFERENCE_ID\", \"amount\": $AMOUNT, \"transaction_type\": \"DEPOSIT\"}" -w "%{http_code}" -o response.json)
     HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
     RESPONSE_BODY=$(<response.json)
+
+    # Log the deposit activity with the response body
+    log_activity "Deposit" "$RESPONSE_BODY"
 
     if [[ "$HTTP_STATUS" -ge 400 ]]; then
         ERROR_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message')
@@ -121,17 +111,14 @@ deposit() {
 }
 
 withdraw() {
-    if [ -z "$1" ]; then
-        echo "Error: Amount is required for withdrawal."
-        return 1
-    fi
-    validate_amount "$1" || return 1
-
     read API_KEY APPLICATION_ID ACCOUNT_ID ACCOUNT_NAME < "$LOGIN_SESSION_FILE"
     AMOUNT=$1
     RESPONSE=$(curl -s -X POST "$API_BASE_URL/v2/transactions" -H "Content-Type: application/json" -H "application-id: $APPLICATION_ID" -H "api-key: $API_KEY" -H "account-id: $ACCOUNT_ID" -d "{\"reference_id\": \"$REFERENCE_ID\", \"amount\": $AMOUNT, \"transaction_type\": \"WITHDRAW\"}" -w "%{http_code}" -o response.json)
     HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
     RESPONSE_BODY=$(<response.json)
+
+    # Log the withdraw activity with the response body
+    log_activity "Withdraw" "$RESPONSE_BODY"
 
     if [[ "$HTTP_STATUS" -ge 400 ]]; then
         ERROR_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message')
@@ -144,22 +131,15 @@ withdraw() {
 }
 
 transfer() {
-    if [ -z "$1" ]; then
-        echo "Error: Target account is required for transfer."
-        return 1
-    fi
-    if [ -z "$2" ]; then
-        echo "Error: Amount is required for transfer."
-        return 1
-    fi
-    validate_amount "$2" || return 1
-
     read API_KEY APPLICATION_ID ACCOUNT_ID ACCOUNT_NAME < "$LOGIN_SESSION_FILE"
     TARGET=$1
     AMOUNT=$2
     RESPONSE=$(curl -s -X POST "$API_BASE_URL/v2/transactions" -H "Content-Type: application/json" -H "application-id: $APPLICATION_ID" -H "api-key: $API_KEY" -H "account-id: $ACCOUNT_ID" -d "{\"reference_id\": \"$REFERENCE_ID\", \"amount\": $AMOUNT, \"transaction_type\": \"TRANSFER\", \"recipient\": \"$TARGET\"}" -w "%{http_code}" -o response.json)
     HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
     RESPONSE_BODY=$(<response.json)
+
+    # Log the transfer activity with the response body
+    log_activity "Transfer" "$RESPONSE_BODY"
 
     if [[ "$HTTP_STATUS" -ge 400 ]]; then
         ERROR_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message')
@@ -170,6 +150,26 @@ transfer() {
     parse_transaction_response "$RESPONSE_BODY"
     echo "Your balance is \$$(echo "$RESPONSE_BODY" | jq -r '.account.balance // 0')"
 }
+
+parse_transaction_response() {
+    RESPONSE_BODY=$1
+
+    # Parse the 'TRANSFER' transactions
+    if echo "$RESPONSE_BODY" | jq -e '.results | length > 0' >/dev/null 2>&1; then
+        echo "$RESPONSE_BODY" | jq -r '.results[] | select(.transaction_type == "TRANSFER") | "Transferred $" + (.amount | tostring) + " to " + .recipient_name'
+    fi
+
+    # Parse the 'owed_to' transactions (people you owe money to)
+    if echo "$RESPONSE_BODY" | jq -e '.owed_to | length > 0' >/dev/null 2>&1; then
+        echo "$RESPONSE_BODY" | jq -r '.owed_to[] | "Owed $" + (.amount | tostring) + " to " + .account_name'
+    fi
+
+    # Parse the 'owed_by' transactions (people who owe you money)
+    if echo "$RESPONSE_BODY" | jq -e '.owed_by | length > 0' >/dev/null 2>&1; then
+        echo "$RESPONSE_BODY" | jq -r '.owed_by[] | "Owed $" + (.amount | tostring) + " by " + .account_name'
+    fi
+}
+
 
 logout() {
     if [ -f "$LOGIN_SESSION_FILE" ]; then
@@ -186,8 +186,8 @@ exit_script() {
         echo "Please log out first before exit."
         return 1
     fi
-    rm -f "$SESSION_FILE" "$LOGIN_SESSION_FILE"  # Remove session files
-    trap - EXIT  # Remove the EXIT trap to avoid duplicate messages
+    rm -f "$SESSION_FILE" "$LOGIN_SESSION_FILE"
+    trap - EXIT
     STOP_RESPONSE=$(stop_session 2>&1)
     if [[ ! "$STOP_RESPONSE" =~ "No active Session found" ]]; then
         echo "Session cleared!"

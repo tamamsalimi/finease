@@ -44,7 +44,7 @@ public class GlobalExceptionHandler {
     // Handle constraint violations (e.g., invalid data)
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex) {
-        return ResponseEntity.badRequest().body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), ex.getMessage()));
+        return ResponseEntity.badRequest().body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Internal Server Error"));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)

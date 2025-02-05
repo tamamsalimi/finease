@@ -243,7 +243,6 @@ public class TransactionService {
     private TransactionResponse convertToDTO(List<Transaction> transactions) {
         List<TransactionResult> results = new ArrayList<>();
         for (Transaction t : transactions) {
-
             TransactionResult result = new TransactionResult(t.getRefTransactionId(),
                     t.getTransactionId(),
                     TransactionType.fromCode(t.getTransactionType()).toString(),
@@ -259,6 +258,7 @@ public class TransactionService {
             results.add(result);
         }
         TransactionResponse transactionResponse = new TransactionResponse();
+        transactionResponse.setResults(results);
         transactionResponse.setStatus("Success");
         transactionResponse.setMessage("Transaction Successfully");
         return transactionResponse;
