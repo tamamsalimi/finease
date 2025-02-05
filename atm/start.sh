@@ -90,7 +90,20 @@ login() {
     fi
 }
 
+validate_amount() {
+    if ! [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        echo "Error: Amount must be a valid number."
+        return 1
+    fi
+}
+
 deposit() {
+    if [ -z "$1" ]; then
+        echo "Error: Amount is required for deposit."
+        return 1
+    fi
+    validate_amount "$1" || return 1
+
     read API_KEY APPLICATION_ID ACCOUNT_ID ACCOUNT_NAME < "$LOGIN_SESSION_FILE"
     AMOUNT=$1
     RESPONSE=$(curl -s -X POST "$API_BASE_URL/v2/transactions" -H "Content-Type: application/json" -H "application-id: $APPLICATION_ID" -H "api-key: $API_KEY" -H "account-id: $ACCOUNT_ID" -d "{\"reference_id\": \"$REFERENCE_ID\", \"amount\": $AMOUNT, \"transaction_type\": \"DEPOSIT\"}" -w "%{http_code}" -o response.json)
@@ -111,6 +124,12 @@ deposit() {
 }
 
 withdraw() {
+    if [ -z "$1" ]; then
+        echo "Error: Amount is required for withdrawal."
+        return 1
+    fi
+    validate_amount "$1" || return 1
+
     read API_KEY APPLICATION_ID ACCOUNT_ID ACCOUNT_NAME < "$LOGIN_SESSION_FILE"
     AMOUNT=$1
     RESPONSE=$(curl -s -X POST "$API_BASE_URL/v2/transactions" -H "Content-Type: application/json" -H "application-id: $APPLICATION_ID" -H "api-key: $API_KEY" -H "account-id: $ACCOUNT_ID" -d "{\"reference_id\": \"$REFERENCE_ID\", \"amount\": $AMOUNT, \"transaction_type\": \"WITHDRAW\"}" -w "%{http_code}" -o response.json)
@@ -131,6 +150,16 @@ withdraw() {
 }
 
 transfer() {
+    if [ -z "$1" ]; then
+        echo "Error: Target account is required for transfer."
+        return 1
+    fi
+    if [ -z "$2" ]; then
+        echo "Error: Amount is required for transfer."
+        return 1
+    fi
+    validate_amount "$2" || return 1
+
     read API_KEY APPLICATION_ID ACCOUNT_ID ACCOUNT_NAME < "$LOGIN_SESSION_FILE"
     TARGET=$1
     AMOUNT=$2

@@ -53,7 +53,7 @@ class TransactionServiceTest {
         when(sessionService.getAccountIdFromSecurityContext()).thenReturn(account);
         when(owedTransactionRepository.findByPayFromAndStatusIn(eq(account), anyList(), any())).thenReturn(List.of());
         when(transactionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-
+        when(accountRepository.findByAccountRefAndSessionId(account.getAccountRef(),account.getSessionId())).thenReturn(Optional.of(account));
         TransactionResponse response = transactionService.processTransaction(
                 "REF123", null, new BigDecimal("300"), TransactionType.DEPOSIT);
 
@@ -75,10 +75,13 @@ class TransactionServiceTest {
         owedTransaction.setStatus(Constants.STATUS_UNPAID);
         owedTransaction.setRecipient(recipient);
 
+        Account updatedAccount = new Account();
+        updatedAccount.setBalance(BigDecimal.ZERO);
+
         when(sessionService.getAccountIdFromSecurityContext()).thenReturn(account);
         when(owedTransactionRepository.findByPayFromAndStatusIn(eq(account), anyList(), any())).thenReturn(List.of(owedTransaction));
         when(transactionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-
+        when(accountRepository.findByAccountRefAndSessionId(account.getAccountRef(),account.getSessionId())).thenReturn(Optional.of(updatedAccount));
         TransactionResponse response = transactionService.processTransaction(
                 "REF123", null, new BigDecimal("300"), TransactionType.DEPOSIT);
 
@@ -99,11 +102,14 @@ class TransactionServiceTest {
 
         recipient.setBalance(new BigDecimal("100"));
 
+        Account updatedAccount = new Account();
+        updatedAccount.setBalance(sender.getBalance().subtract(recipient.getBalance()));
+
         when(sessionService.getAccountIdFromSecurityContext()).thenReturn(sender);
         when(accountRepository.findActiveAccountNameWithLockAndSessionId(eq("Recipient"), any()))
                 .thenReturn(Optional.of(recipient));
         when(transactionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-
+        when(accountRepository.findByAccountRefAndSessionId(sender.getAccountRef(),sender.getSessionId())).thenReturn(Optional.of(updatedAccount));
         TransactionResponse response = transactionService.processTransaction(
                 "REF123", "Recipient", new BigDecimal("300"), TransactionType.TRANSFER);
 
@@ -137,7 +143,7 @@ class TransactionServiceTest {
 
         when(sessionService.getAccountIdFromSecurityContext()).thenReturn(account);
         when(transactionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-
+        when(accountRepository.findByAccountRefAndSessionId(account.getAccountRef(),account.getSessionId())).thenReturn(Optional.of(account));
         TransactionResponse response = transactionService.processTransaction(
                 "REF123", null, new BigDecimal("500"), TransactionType.WITHDRAW);
 
