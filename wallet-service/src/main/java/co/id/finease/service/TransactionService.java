@@ -225,6 +225,10 @@ public class TransactionService {
                 }
                 BigDecimal remainingOwedAmount = amount.subtract(owedTransaction.getAmount());
                 if (remainingOwedAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                    if (remainingOwedAmount.compareTo(BigDecimal.ZERO) < 0
+                            && account.getBalance().compareTo(BigDecimal.ZERO) > 0) {
+                        remainingOwedAmount = amount.add(account.getBalance()).subtract(owedTransaction.getAmount());
+                    }
                     owedTransaction.setStatus(Constants.STATUS_PAID);  // Mark as PAID
                     owedTransaction.setAmount(amount);
                     owedTransaction.setUpdateAt(LocalDateTime.now());
@@ -233,14 +237,13 @@ public class TransactionService {
                         OwedTransaction remainingOwedTransaction = createOwedTransaction(null, account, recipient, remainingOwedAmount, Constants.STATUS_UNPAID);
                         owedTransactionRepository.save(remainingOwedTransaction);
                     }
-                    amount = remainingOwedAmount;
                 } else {
                     owedTransaction.setStatus(Constants.STATUS_PAID);  // Mark as PAID
                     owedTransaction.setAmount(owedTransaction.getAmount());
                     owedTransaction.setUpdateAt(LocalDateTime.now());
                     owedTransactionRepository.save(owedTransaction);
-                    amount = remainingOwedAmount;
                 }
+                amount = remainingOwedAmount;
             }
             if (amount.compareTo(BigDecimal.ZERO) > 0) {
                 Transaction transaction = transactionRepository.save(createNewTransaction(referenceId,
