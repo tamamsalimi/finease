@@ -1,9 +1,9 @@
-### Test Create Client API (POST Request)
+### Test Create Session
 POST http://localhost:8080/v1/session
 Content-Type: application/json
 secret_key: my-secret-key
 
-### Test Deactivate Client API (PUT Request)
+### Test Deactivate Session
 PUT http://localhost:8080/v1/session/deactivate
 Content-Type: application/json
 secret_key: my-secret-key

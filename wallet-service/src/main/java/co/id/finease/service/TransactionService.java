@@ -50,24 +50,15 @@ public class TransactionService {
         }
         TransactionResponse response;
         Account account = sessionService.getAccountIdFromSecurityContext();
-        List<Transaction> transactions;
+        List<Transaction> transactions = switch (transactionType) {
+            case WITHDRAW -> handleWithdraw(referenceId, account, amount);
+            case DEPOSIT -> handleDeposit(referenceId, account, amount);
+            case TRANSFER -> handleTransfer(referenceId, account, recipientId, amount);
+        };
 
-        switch (transactionType) {
-            case WITHDRAW:
-                transactions = handleWithdraw(referenceId, account, amount);
-                break;
-            case DEPOSIT:
-                transactions = handleDeposit(referenceId, account, amount, TransactionType.DEPOSIT);
-                break;
-            case TRANSFER:
-                transactions = handleTransfer(referenceId, account, recipientId, amount);
-                break;
-            default:
-                throw new IllegalArgumentException("Invalid transaction type: " + transactionType);
-        }
         response = convertToDTO(transactions);
         Optional<Account> optional = accountRepository.findByAccountRefAndSessionId(account.getAccountRef(),account.getSessionId());
-        response.setAccountResult(new AccountResult(account.getAccountRef(),optional.get().getBalance(),account.getAccountName()));
+        response.setAccountResult(new AccountResult(account.getAccountRef(), optional.map(Account::getBalance).orElse(null),account.getAccountName()));
         response.setOwedBy(owedTransactionService.getAmountsOwedByMe(account));
         response.setOwedTo(owedTransactionService.getOwedTransactionSummary(account));
         return response;
@@ -85,10 +76,10 @@ public class TransactionService {
                 TransactionType.WITHDRAW, account.getBalance().subtract(amount));
         account.setBalance(account.getBalance().subtract(amount));
         accountRepository.save(account);
-        return Arrays.asList(transaction);
+        return List.of(transaction);
     }
 
-    private List<Transaction> handleDeposit(String referenceId, Account account, BigDecimal amount, TransactionType transactionType) {
+    private List<Transaction> handleDeposit(String referenceId, Account account, BigDecimal amount) {
         Sort sort = Sort.by("createdAt");
         List<String> hardcodedStatuses = Arrays.asList(Constants.STATUS_UNPAID, Constants.STATUS_PARTIALLY_PAID);
         List<OwedTransaction> transactionList = owedTransactionRepository.findByPayFromAndStatusIn(account, hardcodedStatuses, sort);
@@ -126,7 +117,7 @@ public class TransactionService {
             }
         }
         Transaction transaction = transactionRepository.save(createNewTransaction(
-                referenceId, transactionId, account, null, amount, transactionType,
+                referenceId, transactionId, account, null, amount, TransactionType.DEPOSIT,
                 account.getBalance().add(amount)));
         transactions.add(transaction);
         account.setBalance(account.getBalance().add(amount));
@@ -232,8 +223,9 @@ public class TransactionService {
                 accountRepository.save(account);
 
                 transaction.setAmount(amount);
-                transaction.setBalanceAfter(amount);
+                transaction.setBalanceAfter(account.getBalance());
                 transactionRepository.save(transaction);
+                transactions.add(transaction);
             }
         }
         return transactions;
