@@ -78,7 +78,7 @@ public class AccountService {
         // Process transactions if balance is positive and there are owed transactions
         if (account.getBalance().compareTo(BigDecimal.ZERO) > 0 && !owedList.isEmpty()) {
             var transactionList = transactionService.handleDeposit(
-                    transactionService.generateRefId(), account, account.getBalance());
+                    transactionService.generateRefId(), account, null);
             response = transactionService.convertToDTO(transactionList);
         }
         // Set additional response details

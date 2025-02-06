@@ -76,86 +76,106 @@ public class TransactionService {
         return List.of(transaction);
     }
 
-    public List<Transaction> handleDeposit(String referenceId, Account account, BigDecimal amount) {
-        Sort sort = Sort.by("createdAt");
-        List<String> hardcodedStatuses = Arrays.asList(Constants.STATUS_UNPAID, Constants.STATUS_PARTIALLY_PAID);
-        List<OwedTransaction> transactionList = owedTransactionRepository.findByPayFromAndStatusIn(account, hardcodedStatuses, sort);
+    public List<Transaction> handleDeposit(String referenceId, Account account, BigDecimal depositAmount) {
+        Sort sort = Sort.by(Sort.Order.asc("createdAt")); // Process oldest owed transactions first
+        List<String> owedStatuses = Arrays.asList(Constants.STATUS_UNPAID, Constants.STATUS_PARTIALLY_PAID);
+        List<OwedTransaction> owedTransactions = owedTransactionRepository.findByPayFromAndStatusIn(account, owedStatuses, sort);
+
         String transactionId = generateRefTransactionId();
         List<Transaction> transactions = new ArrayList<>();
-        if (!transactionList.isEmpty()) {
-            for (OwedTransaction owedTransaction : transactionList) {
-                if (amount.compareTo(BigDecimal.ZERO) <= 0) break; // Stop if no amount left to process
+
+        // Calculate total available balance (either deposit or existing balance)
+        BigDecimal availableAmount = (depositAmount != null) ? account.getBalance().add(depositAmount) : account.getBalance();
+
+        if (!owedTransactions.isEmpty()) {
+            for (OwedTransaction owedTransaction : owedTransactions) {
+                if (availableAmount.compareTo(BigDecimal.ZERO) <= 0) break; // Stop if no funds left
+
                 BigDecimal owedAmount = owedTransaction.getAmount();
-                BigDecimal remainingAmount = amount.subtract(owedAmount);
+                BigDecimal remainingAfterPayment = availableAmount.subtract(owedAmount);
                 Account recipient = owedTransaction.getRecipient();
-                if (remainingAmount.compareTo(BigDecimal.ZERO) >= 0) {
-                    processFullOwedPayment(referenceId, transactionId, account, recipient, owedTransaction, owedAmount, remainingAmount, transactions);
+
+                if (remainingAfterPayment.compareTo(BigDecimal.ZERO) >= 0) {
+                    // Fully pay off the owed transaction
+                    processFullOwedPayment(referenceId, transactionId, account, recipient, owedTransaction, owedAmount, transactions);
+                    availableAmount = remainingAfterPayment;
                 } else {
-                    processPartialOwedPayment(referenceId, transactionId, account, recipient, owedTransaction, amount, remainingAmount, transactions);
+                    // Partially pay and create a new owed transaction for the remaining amount
+                    processPartialOwedPayment(referenceId, transactionId, account, recipient, owedTransaction, availableAmount, transactions);
+                    availableAmount = BigDecimal.ZERO;
+                    break; // Stop further processing since funds are exhausted
                 }
-                amount = remainingAmount;
             }
-            if (amount.compareTo(BigDecimal.ZERO) > 0) {
-                account.setBalance(account.getBalance().add(amount));
-            }
-        } else {
-            account.setBalance(account.getBalance().add(amount));
         }
-        processDepositTransaction(referenceId, transactionId, account, amount, transactions);
+
+        // If login or deposit leaves extra balance, update it
+        account.setBalance(availableAmount);
+
+        // If it's a deposit (not login), create a deposit transaction
+        if (depositAmount != null) {
+            processDepositTransaction(referenceId, transactionId, account, depositAmount, transactions);
+        }
         return transactions;
     }
 
+    private void processDepositTransaction(
+            String referenceId, String transactionId, Account account, BigDecimal depositAmount, List<Transaction> transactions) {
+
+        // Only create a deposit transaction if there's actually a deposit amount
+        if (depositAmount.compareTo(BigDecimal.ZERO) > 0) {
+            Transaction transaction = createNewTransaction(
+                    referenceId, transactionId, account, null, depositAmount, TransactionType.DEPOSIT, account.getBalance()
+            );
+            transactionRepository.save(transaction);
+            transactions.add(transaction);
+            accountRepository.save(account); // Save updated account balance
+        }
+    }
+
+
     private void processFullOwedPayment(
             String referenceId, String transactionId, Account account, Account recipient,
-            OwedTransaction owedTransaction, BigDecimal owedAmount, BigDecimal remainingAmount, List<Transaction> transactions) {
+            OwedTransaction owedTransaction, BigDecimal owedAmount, List<Transaction> transactions) {
 
-        Transaction transaction = createNewTransaction(referenceId, transactionId, account, recipient, owedAmount, TransactionType.TRANSFER, remainingAmount);
+        Transaction transaction = createNewTransaction(referenceId, transactionId, account, recipient, owedAmount, TransactionType.TRANSFER, account.getBalance());
         transactionRepository.save(transaction);
         transactions.add(transaction);
 
-        // Update OwedTransaction to PAID
+        // Mark owed transaction as PAID
         owedTransaction.setStatus(Constants.STATUS_PAID);
         owedTransaction.setUpdateAt(LocalDateTime.now());
         owedTransactionRepository.save(owedTransaction);
 
         // Update balances
         recipient.setBalance(recipient.getBalance().add(owedAmount));
-        if (account.getBalance().compareTo(BigDecimal.ZERO) > 0)
-            account.setBalance(account.getBalance().subtract(owedAmount));
+        account.setBalance(account.getBalance().subtract(owedAmount));
+
+        accountRepository.save(account);
         accountRepository.save(recipient);
     }
 
     private void processPartialOwedPayment(
             String referenceId, String transactionId, Account account, Account recipient,
-            OwedTransaction owedTransaction, BigDecimal amount, BigDecimal remainingAmount, List<Transaction> transactions) {
+            OwedTransaction owedTransaction, BigDecimal partialAmount, List<Transaction> transactions) {
 
-        Transaction transaction = createNewTransaction(referenceId, transactionId, account, recipient, amount, TransactionType.TRANSFER, remainingAmount);
+        Transaction transaction = createNewTransaction(referenceId, transactionId, account, recipient, partialAmount, TransactionType.TRANSFER, account.getBalance());
         transactionRepository.save(transaction);
         transactions.add(transaction);
 
-        // Update OwedTransaction to partially paid
-        owedTransaction.setStatus(Constants.STATUS_PAID);
-        owedTransaction.setAmount(amount);
+        // Update OwedTransaction with partial payment
+        owedTransaction.setAmount(owedTransaction.getAmount().subtract(partialAmount));
+        owedTransaction.setStatus(Constants.STATUS_PARTIALLY_PAID);
         owedTransactionRepository.save(owedTransaction);
 
         // Update recipient balance
-        recipient.setBalance(recipient.getBalance().add(amount));
-        accountRepository.save(recipient);
-        account.setBalance(BigDecimal.ZERO);
+        recipient.setBalance(recipient.getBalance().add(partialAmount));
+        account.setBalance(BigDecimal.ZERO); // All funds used
 
-        // Create a new owed transaction for the remaining balance
-        if (remainingAmount.compareTo(BigDecimal.ZERO) < 0) {
-            OwedTransaction partialOwedTransaction = createOwedTransaction(owedTransaction.getTransaction(), account, recipient, remainingAmount, Constants.STATUS_PARTIALLY_PAID);
-            owedTransactionRepository.save(partialOwedTransaction);
-        }
-    }
-
-    private void processDepositTransaction(String referenceId, String transactionId, Account account, BigDecimal amount, List<Transaction> transactions) {
-        Transaction transaction = createNewTransaction(referenceId, transactionId, account, null, amount, TransactionType.DEPOSIT, account.getBalance());
-        transactionRepository.save(transaction);
-        transactions.add(transaction);
         accountRepository.save(account);
+        accountRepository.save(recipient);
     }
+
+
 
     private Transaction createNewTransaction(String referenceId, String transactionId,
                                              Account account, Account recipient,
@@ -184,6 +204,46 @@ public class TransactionService {
         partialTransaction.setRecipient(recipient); // Use the same recipient
         return partialTransaction;
     }
+
+
+    public TransactionResponse convertToDTO(List<Transaction> transactions) {
+        List<TransactionResult> results = new ArrayList<>();
+        for (Transaction t : transactions) {
+            TransactionResult result = new TransactionResult(t.getRefTransactionId(),
+                    t.getTransactionId(),
+                    TransactionType.fromCode(t.getTransactionType()).toString(),
+                    t.getAmount(),
+                    t.getBalanceBefore(),
+                    t.getBalanceAfter(),
+                    null,
+                    null);
+            if (TransactionType.TRANSFER.getCode() == t.getTransactionType()) {
+                result.setRecipientId(t.getRecipientId().getAccountRef());
+                result.setRecipientName(t.getRecipientId().getAccountName());
+            }
+            results.add(result);
+        }
+        TransactionResponse transactionResponse = new TransactionResponse();
+        transactionResponse.setResults(results);
+        transactionResponse.setStatus("Success");
+        transactionResponse.setMessage("Transaction Successfully");
+        return transactionResponse;
+    }
+
+    private String generateRefTransactionId() {
+        Long sequenceValue = transactionRepository.getNextSequenceValue();
+        String date = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHH"));
+        String formattedSeq = String.format("%04d", sequenceValue);
+        return "TRX" + date + formattedSeq;
+    }
+
+    public String generateRefId() {
+        long sequenceValue = 1_000_000L + new Random().nextLong(9_000_000L);
+        String date = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHH"));
+        String formattedSeq = String.format("%04d", sequenceValue);
+        return "RF" + date + formattedSeq;
+    }
+
 
     private List<Transaction> handleTransfer(String referenceId, Account account,
                                              String recipientName,
@@ -246,17 +306,22 @@ public class TransactionService {
                 amount = remainingOwedAmount;
             }
             if (amount.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal lastAmount = account.getBalance().subtract(amount);
                 Transaction transaction = transactionRepository.save(createNewTransaction(referenceId,
                         generateRefTransactionId(),
                         account, recipient,
-                        amount, TransactionType.TRANSFER,
-                        account.getBalance().subtract(amount)));
-                account.setBalance(account.getBalance().subtract(amount));
-                accountRepository.save(account);
+                        amount, TransactionType.TRANSFER, lastAmount));
 
+                if (lastAmount.compareTo(BigDecimal.ZERO) < 0) {
+                    OwedTransaction remainingOwedTransaction = createOwedTransaction(null, account, recipient, lastAmount, Constants.STATUS_UNPAID);
+                    owedTransactionRepository.save(remainingOwedTransaction);
+                    lastAmount = BigDecimal.ZERO;
+                    amount = account.getBalance();
+                }
+                account.setBalance(lastAmount);
+                accountRepository.save(account);
                 recipient.setBalance(recipient.getBalance().add(amount));
                 accountRepository.save(account);
-
                 transaction.setAmount(amount);
                 transaction.setBalanceAfter(account.getBalance());
                 transactionRepository.save(transaction);
@@ -265,44 +330,4 @@ public class TransactionService {
         }
         return transactions;
     }
-
-
-    public TransactionResponse convertToDTO(List<Transaction> transactions) {
-        List<TransactionResult> results = new ArrayList<>();
-        for (Transaction t : transactions) {
-            TransactionResult result = new TransactionResult(t.getRefTransactionId(),
-                    t.getTransactionId(),
-                    TransactionType.fromCode(t.getTransactionType()).toString(),
-                    t.getAmount(),
-                    t.getBalanceBefore(),
-                    t.getBalanceAfter(),
-                    null,
-                    null);
-            if (TransactionType.TRANSFER.getCode() == t.getTransactionType()) {
-                result.setRecipientId(t.getRecipientId().getAccountRef());
-                result.setRecipientName(t.getRecipientId().getAccountName());
-            }
-            results.add(result);
-        }
-        TransactionResponse transactionResponse = new TransactionResponse();
-        transactionResponse.setResults(results);
-        transactionResponse.setStatus("Success");
-        transactionResponse.setMessage("Transaction Successfully");
-        return transactionResponse;
-    }
-
-    private String generateRefTransactionId() {
-        Long sequenceValue = transactionRepository.getNextSequenceValue();
-        String date = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHH"));
-        String formattedSeq = String.format("%04d", sequenceValue);
-        return "TRX" + date + formattedSeq;
-    }
-
-    public String generateRefId() {
-        long sequenceValue = 1_000_000L + new Random().nextLong(9_000_000L);
-        String date = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHH"));
-        String formattedSeq = String.format("%04d", sequenceValue);
-        return "RF" + date + formattedSeq;
-    }
-
 }
