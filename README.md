@@ -26,7 +26,7 @@ FinEase is a modern, efficient platform designed to streamline financial operati
 ## Prerequisites
 
 - Docker and Docker Compose installed on your system.
-- Java 11 or higher for building the Spring Boot service using Maven.
+- Java 21 for building the Spring Boot service using Maven.
 - Bash shell for running the ATM CLI.
 
 ## Running the Project
